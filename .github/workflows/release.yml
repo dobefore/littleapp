@@ -55,12 +55,13 @@ jobs:
       - name: Copy files to output
         run: |
           cp target/aarch64-unknown-linux-musl/release/littleapp .
+          tar -zcvf ${{ steps.info.outputs.arm64dir }}.tar.gz littleapp
       
       - name: Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: littleapp
+          files: littleapp.tar.gz
       # - name: Create output directory
       #   run: mkdir output
 
