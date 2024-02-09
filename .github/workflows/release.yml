@@ -1,0 +1,118 @@
+name: Create Release Draft
+# git push origin 0.5.3 to push local to remote
+on:
+  workflow_dispatch:
+  push:
+    tags: ["[0-9]+.[0-9]+.[0-9]+*"]
+
+jobs:
+  arm64:
+    name: Build arm64
+    runs-on: ubuntu-latest
+    # after every step is finished,exporting to PATH will be clear,so in next step ,need re-export
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      - name: Set up cargo
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      
+      - name: Add cargo taget arm64
+        run: rustup target add aarch64-unknown-linux-musl
+
+      
+      - uses: robinraju/release-downloader@v1.4
+        with:
+          repository: "dobefore/musl-cross"
+          tag: "0.1.0"
+          fileName: "aarch64-linux-musl-cross.tgz"
+
+      - name: Copy musl-cross to home
+        run: cp  aarch64-linux-musl-cross.tgz $HOME
+
+      - name: unpack cross-compile toolchains musl
+        run: tar -zxvf $HOME/aarch64-linux-musl-cross.tgz -C $HOME
+      
+        # build static-linked binary for armv6 (also suitable for aarch64)
+          
+      - name: Build 
+        run: | 
+          export PATH="$HOME/aarch64-linux-musl-cross/bin:$PATH"
+          cargo build --target aarch64-unknown-linux-musl --release 
+  
+      - name: Strip binaries (littleapp)
+        run: $HOME/aarch64-linux-musl-cross/bin/aarch64-linux-musl-strip target/aarch64-unknown-linux-musl/release/littleapp
+      
+      - name: Create output directory
+        run: mkdir output
+
+      - name: Copy files to output
+        run: |
+          cp target/aarch64-unknown-linux-musl/release/littleapp output/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: arm64
+          path: output/*
+  
+  release:
+    name: Publish Release
+    runs-on: ubuntu-latest
+    needs:
+      - arm64
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      - name: Determine Release Info
+        id: info
+        env:
+          GITHUB_REF: ${{ github.ref }}
+        run: |
+          VERSION=${GITHUB_REF##*/}
+          MAJOR=${VERSION%%.*}
+          MINOR=${VERSION%.*}
+          MINOR=${MINOR#*.}
+          PATCH=${VERSION##*.}
+          echo "::set-output name=version::${VERSION}"
+          echo "::set-output name=arm64dir::littleapp_${MAJOR}.${MINOR}.${PATCH}_linux_arm64"
+          echo "::set-output name=innerdir::littleapp-${VERSION}"
+      - name: Create Release Draft
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: ${{ steps.info.outputs.version }} Release
+          draft: true
+      
+      - name: Create arm64 Directory
+        run: mkdir -p ${{ steps.info.outputs.arm64dir }}
+
+      - name: Download arm64 Artifacts
+        uses: actions/download-artifact@v2
+        with:
+          name: arm64
+          path: ${{ steps.info.outputs.arm64dir }}
+
+      - name: Restore arm64 File Modes
+        run: |
+          chmod 755 ${{ steps.info.outputs.arm64dir }}/littleapp*
+      - name: Create arm64 tarball
+        run: tar -zcvf ${{ steps.info.outputs.arm64dir }}.tar.gz ${{ steps.info.outputs.arm64dir }}
+
+      - name: Upload arm64 Artifact
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./${{ steps.info.outputs.arm64dir }}.tar.gz
+          asset_name: ${{ steps.info.outputs.arm64dir }}.tar.gz
+          asset_content_type: application/gzip
