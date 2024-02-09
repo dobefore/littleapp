@@ -9,6 +9,11 @@ jobs:
   arm64:
     name: Build arm64
     runs-on: ubuntu-latest
+    # to avoid error  Creating new GitHub release for tag 0.1.2...
+    # ⚠️ GitHub release failed with status: 403
+    # undefined
+    permissions:
+      contents: write
     # after every step is finished,exporting to PATH will be clear,so in next step ,need re-export
     steps:
       - name: Check out code
